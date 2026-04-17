@@ -1,7 +1,5 @@
 <?php
-require 'config.php';
-
-$message = '';
+require_once __DIR__ . '/../config.php'; // El .. sube un nivel a la raíz$message = '';
 $message_type = '';
 
 $stmt = $pdo->query("SELECT COALESCE(MAX(ticket), 0) + 1 as next_ticket FROM reparaciones");
