@@ -1,21 +1,25 @@
 <?php
 // api/config.php
-$host = getenv('DB_HOST'); // Ej: ep-cool-darkness-123456.us-east-2.aws.neon.tech
+$host = getenv('DB_HOST');
 $db   = getenv('DB_NAME');
 $user = getenv('DB_USER');
 $pass = getenv('DB_PASSWORD');
-$port = "5432";
 
 try {
-    // El formato correcto para Postgres PDO es:
-    $dsn = "pgsql:host=$host;port=$port;dbname=$db;sslmode=require";
+    // IMPORTANTE: Sin espacios extra y asegurando que $host no esté vacío
+    if (!$host) {
+        throw new Exception("La variable DB_HOST no está definida en Vercel");
+    }
+
+    $dsn = "pgsql:host=$host;port=5432;dbname=$db;sslmode=require";
     
     $pdo = new PDO($dsn, $user, $pass, [
         PDO::ATTR_ERRMODE => PDO::ATTR_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        PDO::ATTR_TIMEOUT => 5 // Tiempo de espera para evitar bloqueos
     ]);
-} catch (PDOException $e) {
-    // Esto te ayudará a ver si falta alguna variable de entorno en Vercel
+    
+} catch (Exception $e) {
     die("Error de conexión: " . $e->getMessage());
 }
 ?>
