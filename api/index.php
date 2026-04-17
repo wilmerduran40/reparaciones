@@ -1,5 +1,7 @@
 <?php
+// 1. FORZAR REPORTE DE ERRORES (Si falla, nos dirá por qué)
 ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
 $host = getenv('PGHOST');
@@ -15,10 +17,10 @@ try {
     if ($host) {
         $pdo = new PDO("pgsql:host=$host;dbname=$db", $user, $pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
         
-        // Sincronización de tabla
+        // Sincronización básica
         $pdo->exec("CREATE TABLE IF NOT EXISTS reparaciones (id SERIAL PRIMARY KEY, fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP, cliente VARCHAR(255) DEFAULT 'Sin nombre', equipo VARCHAR(255) NOT NULL, detalle TEXT, estado VARCHAR(50) DEFAULT 'Revision')");
 
-        // 1. Lógica: Guardar o Actualizar
+        // Lógica de Guardar/Editar
         if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['equipo'])) {
             if (!empty($_POST['id'])) {
                 $stmt = $pdo->prepare("UPDATE reparaciones SET cliente=?, equipo=?, detalle=?, estado=? WHERE id=?");
@@ -30,30 +32,35 @@ try {
             header("Location: /"); exit;
         }
 
-        // 2. Lógica: Eliminar
+        // Lógica de Eliminar
         if (isset($_GET['delete_id'])) {
             $stmt = $pdo->prepare("DELETE FROM reparaciones WHERE id = ?");
             $stmt->execute([$_GET['delete_id']]);
             header("Location: /"); exit;
         }
 
-        // 3. Lógica: Cargar datos para Editar
+        // Cargar datos para editar
         if (isset($_GET['edit_id'])) {
             $stmt = $pdo->prepare("SELECT * FROM reparaciones WHERE id = ?");
             $stmt->execute([$_GET['edit_id']]);
             $edit_data = $stmt->fetch(PDO::FETCH_ASSOC);
         }
 
-        // 4. Cargar lista completa
+        // Cargar lista
         $stmt = $pdo->query("SELECT * FROM reparaciones ORDER BY fecha DESC");
         $registros = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } else {
+        $error_db = "Faltan variables de entorno (Base de datos no conectada).";
     }
-} catch (Exception $e) { $error_db = $e->getMessage(); }
+} catch (Exception $e) { 
+    $error_db = "Error de conexión: " . $e->getMessage(); 
+}
 ?>
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tecnet Service | Panel</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
     <style>
@@ -61,21 +68,23 @@ try {
         .Revision { background: #ffd180; } .Reparado { background: #b9f6ca; } 
         .Dañado { background: #ff8a80; } .Repuesto { background: #cfd8dc; }
         nav { background: #111; padding: 10px; margin-bottom: 20px; }
-        .action-btns { display: flex; gap: 8px; font-size: 1.2rem; }
-        .action-btns a { text-decoration: none; }
-        dialog article { max-width: 500px; }
+        .action-btns { display: flex; gap: 15px; font-size: 1.2rem; }
     </style>
 </head>
 <body class="container">
     <nav><ul><li><strong style="color:white">TECNET SERVICE 🛠️</strong></li></ul></nav>
 
+    <?php if ($error_db): ?>
+        <article style="background:#fee; color:#b71c1c; padding:10px;"><?= $error_db ?></article>
+    <?php endif; ?>
+
     <article id="formulario">
-        <header><strong><?= $edit_data ? '📝 Editar Registro' : '📥 Ingreso de Equipo' ?></strong></header>
+        <header><strong><?= $edit_data ? '📝 Editando Registro' : '📥 Ingreso de Equipo' ?></strong></header>
         <form method="POST">
             <input type="hidden" name="id" value="<?= $edit_data['id'] ?? '' ?>">
             <div class="grid">
-                <input type="text" name="cliente" placeholder="Cliente" value="<?= $edit_data['cliente'] ?? '' ?>">
-                <input type="text" name="equipo" placeholder="Equipo" required value="<?= $edit_data['equipo'] ?? '' ?>">
+                <input type="text" name="cliente" placeholder="Cliente" value="<?= htmlspecialchars($edit_data['cliente'] ?? '') ?>">
+                <input type="text" name="equipo" placeholder="Equipo" required value="<?= htmlspecialchars($edit_data['equipo'] ?? '') ?>">
                 <select name="estado">
                     <?php $est = $edit_data['estado'] ?? 'Revision'; ?>
                     <option value="Revision" <?= $est=='Revision'?'selected':'' ?>>En Revisión</option>
@@ -84,7 +93,15 @@ try {
                     <option value="Repuesto" <?= $est=='Repuesto'?'selected':'' ?>>⚙️ Repuesto</option>
                 </select>
             </div>
-            <textarea name="detalle" placeholder="Detalles técnicos..."><?= $edit_data['detalle'] ?? '' ?></textarea>
-            <div style="display:flex; gap:10px;">
-                <button type="submit" class="contrast"><?= $edit_data ? 'Actualizar' : 'Registrar' ?></button>
-                <?php if($edit_data): ?><a href="/" class="button
+            <textarea name="detalle" placeholder="Detalles técnicos..."><?= htmlspecialchars($edit_data['detalle'] ?? '') ?></textarea>
+            <button type="submit" class="contrast"><?= $edit_data ? 'Guardar Cambios' : 'Registrar Equipo' ?></button>
+            <?php if($edit_data): ?><a href="/" style="display:block; text-align:center; margin-top:10px;">Cancelar Edición</a><?php endif; ?>
+        </form>
+    </article>
+
+    <figure>
+        <table>
+            <thead>
+                <tr>
+                    <th>Fecha</th>
+                    <th>Equipo
