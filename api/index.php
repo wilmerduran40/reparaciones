@@ -1,151 +1,127 @@
 <?php
-/**
- * SISTEMA DE REGISTRO DE REPARACIONES - TECNET
- * Conexión: Neon Postgres (Vercel Storage)
- */
-
-// 1. Obtener variables de entorno de Vercel/Neon
 $host = getenv('PGHOST');
 $db   = getenv('PGDATABASE');
 $user = getenv('PGUSER');
 $pass = getenv('PGPASSWORD');
 $port = getenv('PGPORT') ?: '5432';
 
-$registros = [];
-$error_db = false;
-
 try {
-    // Verificar si las variables existen
-    if (!$host || !$db || !$user) {
-        throw new Exception("Faltan las variables de entorno de la base de datos. Asegúrate de haber conectado Neon en la pestaña 'Storage'.");
-    }
-
-    // 2. Conexión PDO
     $dsn = "pgsql:host=$host;port=$port;dbname=$db";
-    $pdo = new PDO($dsn, $user, $pass, [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        PDO::ATTR_TIMEOUT => 5
-    ]);
+    $pdo = new PDO($dsn, $user, $pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
 
-    // 3. Crear tabla si no existe
+    // Crear tabla actualizada si no existe
     $pdo->exec("CREATE TABLE IF NOT EXISTS reparaciones (
         id SERIAL PRIMARY KEY,
         fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        cliente VARCHAR(255),
+        telefono VARCHAR(50),
         equipo VARCHAR(255) NOT NULL,
         detalle TEXT,
-        estado VARCHAR(50)
+        costo DECIMAL(10,2) DEFAULT 0,
+        estado VARCHAR(50) DEFAULT 'Revision'
     )");
 
-    // 4. Procesar Formulario (POST)
-    if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['equipo'])) {
-        $stmt = $pdo->prepare("INSERT INTO reparaciones (equipo, detalle, estado) VALUES (?, ?, ?)");
+    // Registrar equipo
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] == 'nuevo') {
+        $stmt = $pdo->prepare("INSERT INTO reparaciones (cliente, telefono, equipo, detalle, costo, estado) VALUES (?, ?, ?, ?, ?, ?)");
         $stmt->execute([
-            strip_tags($_POST['equipo']),
-            strip_tags($_POST['detalle']),
-            $_POST['estado']
+            $_POST['cliente'], $_POST['telefono'], $_POST['equipo'], 
+            $_POST['detalle'], $_POST['costo'] ?: 0, $_POST['estado']
         ]);
-        // Redirigir para limpiar el envío del formulario
-        header("Location: " . $_SERVER['PHP_SELF']);
-        exit;
+        header("Location: index.php"); exit;
     }
 
-    // 5. Consultar Registros
-    $stmt = $pdo->query("SELECT * FROM reparaciones ORDER BY fecha DESC LIMIT 50");
-    $registros = $stmt->fetchAll();
+    // Buscador
+    $buscar = $_GET['q'] ?? '';
+    $sql = "SELECT * FROM reparaciones WHERE equipo ILIKE ? OR cliente ILIKE ? ORDER BY fecha DESC";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute(["%$buscar%", "%$buscar%"]);
+    $registros = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-} catch (Exception $e) {
-    $error_db = $e->getMessage();
-}
-
-// Función para limpiar texto en el HTML
-function h($text) {
-    return htmlspecialchars($text, ENT_QUOTES, 'UTF-8');
-}
+} catch (Exception $e) { $error = $e->getMessage(); }
 ?>
 
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es" data-theme="light">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tecnet | Control de Equipos</title>
+    <title>Tecnet Pro | Panel de Control</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
     <style>
-        :root { --primary: #00897b; }
-        .status { padding: 4px 10px; border-radius: 20px; font-size: 0.85rem; font-weight: bold; }
-        .Revision { background: #fff9c4; color: #f57f17; }
-        .Listo { background: #c8e6c9; color: #2e7d32; }
-        .Entregado { background: #e1f5fe; color: #0288d1; }
-        .error-msg { background: #ffebee; color: #c62828; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 5px solid #b71c1c; }
+        .badge { padding: 3px 10px; border-radius: 50px; font-size: 0.8rem; font-weight: bold; }
+        .Revision { background: #fff3e0; color: #ef6c00; }
+        .Listo { background: #e8f5e9; color: #2e7d32; }
+        .Entregado { background: #e3f2fd; color: #1565c0; }
+        .m-0 { margin: 0; }
+        header { background: #1a1a1a; color: white; padding: 2rem 0; margin-bottom: 2rem; }
     </style>
 </head>
-<body class="container">
-    <header style="padding: 20px 0;">
-        <h1>🛠 Gestión de Reparaciones</h1>
-        <p>Registro de servicio técnico y revisiones</p>
+<body>
+    <header>
+        <div class="container">
+            <hgroup>
+                <h1>Tecnet Service 🛠️</h1>
+                <p>Gestión de Servicio Técnico de Importaciones y Electrónica</p>
+            </hgroup>
+        </div>
     </header>
 
-    <?php if ($error_db): ?>
-        <div class="error-msg">
-            <strong>⚠️ Error de Base de Datos:</strong><br>
-            <?= h($error_db) ?>
-        </div>
-    <?php endif; ?>
-
-    <main>
-        <article>
-            <header><strong>Nueva Entrada de Equipo</strong></header>
-            <form method="POST">
-                <div class="grid">
-                    <label>
-                        Equipo / Modelo
-                        <input type="text" name="equipo" placeholder="Ej: Laptop HP, Router" required>
-                    </label>
-                    <label>
-                        Estado
+    <main class="container">
+        <div class="grid">
+            <section>
+                <article>
+                    <header><strong>Ingreso de Equipo</strong></header>
+                    <form method="POST">
+                        <input type="hidden" name="action" value="nuevo">
+                        <div class="grid">
+                            <input type="text" name="cliente" placeholder="Nombre del Cliente" required>
+                            <input type="text" name="telefono" placeholder="WhatsApp / Teléfono">
+                        </div>
+                        <div class="grid">
+                            <input type="text" name="equipo" placeholder="Equipo (Ej: Router 1688, Laptop)" required>
+                            <input type="number" step="0.01" name="costo" placeholder="Costo Presupuestado ($)">
+                        </div>
                         <select name="estado">
                             <option value="Revision">En Revisión</option>
-                            <option value="Listo">Listo para entrega</option>
+                            <option value="Listo">Listo / Reparado</option>
                             <option value="Entregado">Entregado</option>
                         </select>
-                    </label>
+                        <textarea name="detalle" placeholder="Falla reportada o piezas cambiadas..."></textarea>
+                        <button type="submit" class="contrast">Registrar en Sistema</button>
+                    </form>
+                </article>
+            </section>
+
+            <section>
+                <form method="GET">
+                    <input type="search" name="q" placeholder="Buscar por cliente o equipo..." value="<?= htmlspecialchars($buscar) ?>">
+                </form>
+
+                <div style="overflow-x:auto;">
+                    <table role="grid">
+                        <thead>
+                            <tr>
+                                <th>Equipo / Cliente</th>
+                                <th>Costo</th>
+                                <th>Estado</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($registros as $r): ?>
+                            <tr>
+                                <td>
+                                    <strong><?= htmlspecialchars($r['equipo']) ?></strong><br>
+                                    <small><?= htmlspecialchars($r['cliente']) ?> (<?= htmlspecialchars($r['telefono']) ?>)</small>
+                                </td>
+                                <td>$<?= number_format($r['costo'], 2) ?></td>
+                                <td><span class="badge <?= $r['estado'] ?>"><?= $r['estado'] ?></span></td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
                 </div>
-                <label>Descripción de la falla / Trabajo realizado</label>
-                <textarea name="detalle" rows="3" placeholder="Detalle técnico..."></textarea>
-                <button type="submit" <?= $error_db ? 'disabled' : '' ?>>Guardar en Base de Datos</button>
-            </form>
-        </article>
-
-        <hr>
-
-        <h3>Historial de Revisiones</h3>
-        <figure>
-            <table role="grid">
-                <thead>
-                    <tr>
-                        <th>Fecha</th>
-                        <th>Equipo</th>
-                        <th>Detalle Técnico</th>
-                        <th>Estado</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php if (empty($registros)): ?>
-                        <tr><td colspan="4" style="text-align:center;">No hay equipos registrados aún.</td></tr>
-                    <?php else: ?>
-                        <?php foreach ($registros as $r): ?>
-                        <tr>
-                            <td><?= date('d/m/Y', strtotime($r['fecha'])) ?></td>
-                            <td><strong><?= h($r['equipo']) ?></strong></td>
-                            <td><?= h($r['detalle']) ?></td>
-                            <td><span class="status <?= $r['estado'] ?>"><?= $r['estado'] ?></span></td>
-                        </tr>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
-                </tbody>
-            </table>
-        </figure>
+            </section>
+        </div>
     </main>
 </body>
 </html>
